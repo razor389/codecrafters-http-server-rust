@@ -44,9 +44,9 @@ fn main() {
                         println!("User-Agent: {}", user_agent);
 
                         // Respond with the User-Agent
-                        let response_body = format!("User-Agent: {}", user_agent);
+                        let response_body = format!("{}", user_agent);
                         let response = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
                             response_body.len(),
                             response_body
                         );
