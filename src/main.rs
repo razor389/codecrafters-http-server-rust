@@ -41,13 +41,15 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
                     }
                 }
 
-                // Read the remaining body from the stream if the buffer doesn't already contain all of it
-                let mut body = Vec::new();
+                // Initialize a vector to hold the entire body
+                let mut body = Vec::with_capacity(content_length);
+
+                // Read the body from the buffer (after the headers)
                 let body_start = request.split("\r\n\r\n").nth(1).unwrap_or("").as_bytes();
                 body.extend_from_slice(body_start);
 
                 // If the content in the buffer is less than the Content-Length, keep reading
-                if body.len() < content_length {
+                while body.len() < content_length {
                     let mut remaining_body = vec![0; content_length - body.len()];
                     stream.read_exact(&mut remaining_body).unwrap();
                     body.extend_from_slice(&remaining_body);
@@ -67,8 +69,8 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
                 stream.write(response.as_bytes()).unwrap();
                 stream.flush().unwrap();
             }
-        }
-         // Handle GET /files/{filename} requests 
+        } 
+        // Handle GET /files/{filename} requests 
         else if method == "GET" && path.starts_with("/files/") {
             if let Some(directory) = &directory {
                 // Extract the filename from the path
