@@ -44,15 +44,20 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
                 // Initialize a vector to hold the entire body
                 let mut body = Vec::with_capacity(content_length);
 
-                // Read the body from the buffer (after the headers)
-                let body_start = request.split("\r\n\r\n").nth(1).unwrap_or("").as_bytes();
-                body.extend_from_slice(body_start);
+                // Get the part of the body that is already in the buffer after the headers
+                if let Some(index) = request.find("\r\n\r\n") {
+                    let body_start = index + 4; // Skip the `\r\n\r\n`
+                    let remaining_in_buffer = bytes_read - body_start;
+                    if remaining_in_buffer > 0 {
+                        body.extend_from_slice(&buffer[body_start..bytes_read]);
+                    }
+                }
 
-                // If the content in the buffer is less than the Content-Length, keep reading
+                // Read the remaining body from the stream if necessary
                 while body.len() < content_length {
-                    let mut remaining_body = vec![0; content_length - body.len()];
-                    stream.read_exact(&mut remaining_body).unwrap();
-                    body.extend_from_slice(&remaining_body);
+                    let mut chunk = vec![0; content_length - body.len()];
+                    let bytes_read = stream.read(&mut chunk).unwrap();
+                    body.extend_from_slice(&chunk[..bytes_read]);
                 }
 
                 // Write the body content to the specified file
