@@ -29,8 +29,21 @@ fn main() {
                     let path = parts[1];
 
                     if method == "GET" && path == "/" {
-                        // Respond with 200 OK if the path is "/"
+                        // Respond with 200 OK for the root "/"
                         let response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+                        stream.write(response.as_bytes()).unwrap();
+                        stream.flush().unwrap();
+                    } else if method == "GET" && path.starts_with("/echo/") {
+                        // Extract the string after "/echo/"
+                        let echo_str = &path[6..]; // Get the part after "/echo/"
+                        
+                        // Prepare an HTTP response with the echoed string
+                        let response_body = format!("{}", echo_str);
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                            response_body.len(),
+                            response_body
+                        );
                         stream.write(response.as_bytes()).unwrap();
                         stream.flush().unwrap();
                     } else {
