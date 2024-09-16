@@ -17,7 +17,7 @@ fn main() {
                 let request = String::from_utf8_lossy(&buffer[..]);
                 
                 // Log the incoming request for debugging
-                println!("Received request: {}", request);
+                println!("Received request here: {}", request);
 
                 // Parse the request line (first line of the request)
                 let request_line = request.lines().next().unwrap_or("");
