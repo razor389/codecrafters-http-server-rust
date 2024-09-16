@@ -7,18 +7,18 @@ use std::path::Path;
 use std::thread;
 
 fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>) {
-    let mut buffer = [0; 512];
-    stream.read(&mut buffer).unwrap();
-    
-    // Convert buffer to a string to examine the request
-    let request = String::from_utf8_lossy(&buffer[..]);
-    
+    let mut buffer = [0; 512];  // A buffer to read incoming data
+    let bytes_read = stream.read(&mut buffer).unwrap();
+
+    // Convert buffer to a string to examine the request headers
+    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+
     // Log the incoming request for debugging
     println!("Received request: {}", request);
 
     // Parse the request line (first line of the request)
     let request_line = request.lines().next().unwrap_or("");
-    
+
     // Split the request line into components: method, path, version
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() >= 2 {
