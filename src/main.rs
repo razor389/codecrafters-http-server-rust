@@ -113,8 +113,7 @@ fn main() {
     if args.len() > 2 && args[1] == "--directory" {
         directory = args[2].clone();
     } else {
-        eprintln!("Usage: --directory <dir>");
-        return;
+        directory = "no directory specified".to_string();
     }
 
     println!("Serving files from directory: {}", directory);
