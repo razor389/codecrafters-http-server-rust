@@ -60,9 +60,9 @@ fn main() {
                     } else if method == "GET" && path.starts_with("/echo/") {
                         // Handle /echo/{str}
                         let echo_str = &path[6..]; // Extract the part after "/echo/"
-                        let response_body = format!("You said: {}", echo_str);
+                        let response_body = format!("{}", echo_str);
                         let response = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
                             response_body.len(),
                             response_body
                         );
