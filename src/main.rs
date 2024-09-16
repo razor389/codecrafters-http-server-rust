@@ -35,7 +35,7 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
 
                 // Read the body of the POST request (in this example, the remaining data in the buffer)
                 let body = &buffer[request.len()..]; // Capture body after the headers
-
+                println!("body: {:?}", body.to_ascii_lowercase());
                 // Write the body content to the specified file
                 let mut file = File::create(file_path).unwrap();
                 file.write_all(body).unwrap();
