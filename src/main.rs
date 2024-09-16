@@ -6,7 +6,7 @@ use std::env;
 use std::path::Path;
 use std::thread;
 
-fn handle_connection(mut stream: std::net::TcpStream, directory: String) {
+fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>) {
     let mut buffer = [0; 512];
     stream.read(&mut buffer).unwrap();
     
@@ -26,28 +26,59 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: String) {
         let path = parts[1];
         
         // Handle GET requests
-        if method == "GET" && path.starts_with("/files/") {
-            // Extract the filename from the path
-            let filename = &path[7..]; // The part after "/files/"
-            let file_path = Path::new(&directory).join(filename);
+        // Handle POST /files/{filename} requests
+        if method == "POST" && path.starts_with("/files/") {
+            if let Some(directory) = &directory {
+                // Extract the filename from the path
+                let filename = &path[7..]; // The part after "/files/"
+                let file_path = Path::new(&directory).join(filename);
 
-            if file_path.exists() && file_path.is_file() {
-                // Open the file and read its contents
-                let mut file = File::open(file_path).unwrap();
-                let mut file_contents = Vec::new();
-                file.read_to_end(&mut file_contents).unwrap();
-                
-                // Create the HTTP response with file contents
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
-                    file_contents.len()
-                );
+                // Read the body of the POST request (in this example, the remaining data in the buffer)
+                let body = &buffer[request.len()..]; // Capture body after the headers
+
+                // Write the body content to the specified file
+                let mut file = File::create(file_path).unwrap();
+                file.write_all(body).unwrap();
+
+                // Respond with 201 Created
+                let response = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
                 stream.write(response.as_bytes()).unwrap();
-                stream.write(&file_contents).unwrap();
                 stream.flush().unwrap();
             } else {
-                // File not found, return 404
-                let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+                // Directory not provided, return 400 Bad Request
+                let response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+                stream.write(response.as_bytes()).unwrap();
+                stream.flush().unwrap();
+            }
+        } else if method == "GET" && path.starts_with("/files/") {
+            if let Some(directory) = &directory {
+                // Extract the filename from the path
+                let filename = &path[7..]; // The part after "/files/"
+                let file_path = Path::new(&directory).join(filename);
+
+                if file_path.exists() && file_path.is_file() {
+                    // Open the file and read its contents
+                    let mut file = File::open(file_path).unwrap();
+                    let mut file_contents = Vec::new();
+                    file.read_to_end(&mut file_contents).unwrap();
+                    
+                    // Create the HTTP response with file contents
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
+                        file_contents.len()
+                    );
+                    stream.write(response.as_bytes()).unwrap();
+                    stream.write(&file_contents).unwrap();
+                    stream.flush().unwrap();
+                } else {
+                    // File not found, return 404
+                    let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+                    stream.write(response.as_bytes()).unwrap();
+                    stream.flush().unwrap();
+                }
+            } else {
+                // Directory not provided, return 400 Bad Request
+                let response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
                 stream.write(response.as_bytes()).unwrap();
                 stream.flush().unwrap();
             }
@@ -107,16 +138,19 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: String) {
 fn main() {
     // Parse command-line arguments
     let args: Vec<String> = env::args().collect();
-    let mut directory = String::from(".");
+    let mut directory: Option<String> = None;
 
     // Check if the --directory flag is provided
     if args.len() > 2 && args[1] == "--directory" {
-        directory = args[2].clone();
-    } else {
-        directory = "no directory specified".to_string();
+        directory = Some(args[2].clone());
     }
 
-    println!("Serving files from directory: {}", directory);
+    if let Some(dir) = &directory {
+        println!("Serving files from directory: {}", dir);
+    } else {
+        println!("No directory specified. /files requests will return a 400 Bad Request.");
+    }
+
     println!("Server running on 127.0.0.1:4221...");
 
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
