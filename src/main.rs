@@ -25,7 +25,6 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
         let method = parts[0];
         let path = parts[1];
         
-        // Handle GET requests
         // Handle POST /files/{filename} requests
         if method == "POST" && path.starts_with("/files/") {
             if let Some(directory) = &directory {
@@ -33,12 +32,30 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
                 let filename = &path[7..]; // The part after "/files/"
                 let file_path = Path::new(&directory).join(filename);
 
-                // Read the body of the POST request (in this example, the remaining data in the buffer)
-                let body = &buffer[request.len()..]; // Capture body after the headers
-                println!("body: {:?}", body.to_ascii_lowercase());
+                // Get the Content-Length header to determine the size of the body
+                let mut content_length = 0;
+                for line in request.lines() {
+                    if line.starts_with("Content-Length:") {
+                        let len_str = line.split(":").nth(1).unwrap().trim();
+                        content_length = len_str.parse::<usize>().unwrap_or(0);
+                    }
+                }
+
+                // Read the remaining body from the stream if the buffer doesn't already contain all of it
+                let mut body = Vec::new();
+                let body_start = request.split("\r\n\r\n").nth(1).unwrap_or("").as_bytes();
+                body.extend_from_slice(body_start);
+
+                // If the content in the buffer is less than the Content-Length, keep reading
+                if body.len() < content_length {
+                    let mut remaining_body = vec![0; content_length - body.len()];
+                    stream.read_exact(&mut remaining_body).unwrap();
+                    body.extend_from_slice(&remaining_body);
+                }
+
                 // Write the body content to the specified file
                 let mut file = File::create(file_path).unwrap();
-                file.write_all(body).unwrap();
+                file.write_all(&body).unwrap();
 
                 // Respond with 201 Created
                 let response = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
@@ -50,7 +67,9 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
                 stream.write(response.as_bytes()).unwrap();
                 stream.flush().unwrap();
             }
-        } else if method == "GET" && path.starts_with("/files/") {
+        }
+         // Handle GET /files/{filename} requests 
+        else if method == "GET" && path.starts_with("/files/") {
             if let Some(directory) = &directory {
                 // Extract the filename from the path
                 let filename = &path[7..]; // The part after "/files/"
