@@ -24,6 +24,7 @@ fn main() {
                 
                 // Split the request line into components: method, path, version
                 let parts: Vec<&str> = request_line.split_whitespace().collect();
+                println!("parts of request line: {:?}", parts);
                 if parts.len() >= 2 {
                     let method = parts[0];
                     let path = parts[1];
