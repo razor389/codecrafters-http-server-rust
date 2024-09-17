@@ -24,7 +24,22 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
     if parts.len() >= 2 {
         let method = parts[0];
         let path = parts[1];
+
+        // Check the Accept-Encoding header for supported compression schemes
+        let mut supports_gzip = false;
+        for line in request.lines() {
+            if line.to_lowercase().starts_with("accept-encoding:") {
+                // Parse the Accept-Encoding header and check for gzip
+                let encodings: Vec<&str> = line.split(":").nth(1).unwrap().split(',').map(|s| s.trim()).collect();
+                supports_gzip = encodings.contains(&"gzip");
+                if supports_gzip {
+                    break;
+                }
+            }
+        }
         
+        println!("Supports gzip: {}", supports_gzip);
+
         // Handle POST /files/{filename} requests
         if method == "POST" && path.starts_with("/files/") {
             if let Some(directory) = &directory {
