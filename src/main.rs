@@ -1,215 +1,53 @@
-#[allow(unused_imports)]
+mod handlers;
+mod helpers;
+
+use std::io::Read;
 use std::net::TcpListener;
-use std::io::{Read, Write};
-use std::fs::File;
 use std::env;
-use std::path::Path;
 use std::thread;
-use flate2::write::GzEncoder;
-use flate2::Compression;
+use handlers::files::{handle_get_files, handle_post_files};
+use handlers::echo::handle_echo;
+use handlers::user_agent::handle_user_agent;
+use helpers::compression::supports_gzip;
+use helpers::response::{respond_with_ok, respond_with_error};
 
 fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>) {
-    let mut buffer = [0; 512];  // A buffer to read incoming data
+    let mut buffer = [0; 512];
     let bytes_read = stream.read(&mut buffer).unwrap();
 
-    // Convert buffer to a string to examine the request headers
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-
-    // Log the incoming request for debugging
     println!("Received request: {}", request);
 
-    // Parse the request line (first line of the request)
     let request_line = request.lines().next().unwrap_or("");
-
-    // Split the request line into components: method, path, version
     let parts: Vec<&str> = request_line.split_whitespace().collect();
-    if parts.len() >= 2 {
-        let method = parts[0];
-        let path = parts[1];
 
-        // Check the Accept-Encoding header for supported compression schemes
-        let mut supports_gzip = false;
-        for line in request.lines() {
-            if line.to_lowercase().starts_with("accept-encoding:") {
-                // Parse the Accept-Encoding header and check for gzip
-                let encodings: Vec<&str> = line.split(":").nth(1).unwrap().split(',').map(|s| s.trim()).collect();
-                supports_gzip = encodings.contains(&"gzip");
-                if supports_gzip {
-                    break;
-                }
-            }
-        }
-        
-        // Helper function to handle gzip compression
-        fn compress_gzip(data: &[u8]) -> Vec<u8> {
-            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-            encoder.write_all(data).unwrap();
-            encoder.finish().unwrap()
-        }
+    if parts.len() < 2 {
+        respond_with_error(&mut stream, 404);
+        return;
+    }
 
-        // Handle POST /files/{filename} requests
-        if method == "POST" && path.starts_with("/files/") {
-            if let Some(directory) = &directory {
-                // Extract the filename from the path
-                let filename = &path[7..]; // The part after "/files/"
-                let file_path = Path::new(&directory).join(filename);
+    let method = parts[0];
+    let path = parts[1];
 
-                // Get the Content-Length header to determine the size of the body
-                let mut content_length = 0;
-                for line in request.lines() {
-                    if line.starts_with("Content-Length:") {
-                        let len_str = line.split(":").nth(1).unwrap().trim();
-                        content_length = len_str.parse::<usize>().unwrap_or(0);
-                    }
-                }
-
-                // Initialize a vector to hold the entire body
-                let mut body = Vec::with_capacity(content_length);
-
-                // Get the part of the body that is already in the buffer after the headers
-                if let Some(index) = request.find("\r\n\r\n") {
-                    let body_start = index + 4; // Skip the `\r\n\r\n`
-                    let remaining_in_buffer = bytes_read - body_start;
-                    if remaining_in_buffer > 0 {
-                        body.extend_from_slice(&buffer[body_start..bytes_read]);
-                    }
-                }
-
-                // Read the remaining body from the stream if necessary
-                while body.len() < content_length {
-                    let mut chunk = vec![0; content_length - body.len()];
-                    let bytes_read = stream.read(&mut chunk).unwrap();
-                    body.extend_from_slice(&chunk[..bytes_read]);
-                }
-
-                // Write the body content to the specified file
-                let mut file = File::create(file_path).unwrap();
-                file.write_all(&body).unwrap();
-
-                // Respond with 201 Created
-                let response = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
-                stream.write(response.as_bytes()).unwrap();
-                stream.flush().unwrap();
-            } else {
-                // Directory not provided, return 400 Bad Request
-                let response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
-                stream.write(response.as_bytes()).unwrap();
-                stream.flush().unwrap();
-            }
-        } 
-        // Handle GET /files/{filename} requests 
-        else if method == "GET" && path.starts_with("/files/") {
-            if let Some(directory) = &directory {
-                // Extract the filename from the path
-                let filename = &path[7..]; // The part after "/files/"
-                let file_path = Path::new(&directory).join(filename);
-
-                if file_path.exists() && file_path.is_file() {
-                    // Open the file and read its contents
-                    let mut file = File::open(file_path).unwrap();
-                    let mut file_contents = Vec::new();
-                    file.read_to_end(&mut file_contents).unwrap();
-                    
-                    // Create the HTTP response with file contents
-                    let response = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
-                        file_contents.len()
-                    );
-                    stream.write(response.as_bytes()).unwrap();
-                    stream.write(&file_contents).unwrap();
-                    stream.flush().unwrap();
-                } else {
-                    // File not found, return 404
-                    let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-                    stream.write(response.as_bytes()).unwrap();
-                    stream.flush().unwrap();
-                }
-            } else {
-                // Directory not provided, return 400 Bad Request
-                let response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
-                stream.write(response.as_bytes()).unwrap();
-                stream.flush().unwrap();
-            }
-        } else if method == "GET" && path == "/user-agent" {
-            // Parse headers to extract "User-Agent"
-            let mut user_agent = "Unknown"; // Default value
-            for line in request.lines() {
-                if line.to_lowercase().starts_with("user-agent:") {
-                    user_agent = line.split_at("User-Agent: ".len()).1.trim();
-                    break;
-                }
-            }
-
-            // Log the request details
-            println!("Host: localhost:4221");
-            println!("User-Agent: {}", user_agent);
-
-            // Respond with the User-Agent
-            let response_body = format!("{}", user_agent);
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-                response_body.len(),
-                response_body
-            );
-            stream.write(response.as_bytes()).unwrap();
-            stream.flush().unwrap();
-        } else if method == "GET" && path == "/" {
-            // Handle root "/"
-            let response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
-            stream.write(response.as_bytes()).unwrap();
-            stream.flush().unwrap();
-        } 
-        // Handle GET /echo/{str} with optional gzip compression
-        else if method == "GET" && path.starts_with("/echo/") {
-            // Handle /echo/{str}
-            let echo_str = &path[6..]; // Extract the part after "/echo/"
-            let response_body = echo_str.as_bytes();
-
-            if supports_gzip {
-                // Compress response body
-                let compressed_body = compress_gzip(response_body);
-
-                // Create the headers
-                let headers = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n",
-                    compressed_body.len()
-                );
-
-                // Write headers and compressed body to stream
-                stream.write(headers.as_bytes()).unwrap();
-                stream.write(&compressed_body).unwrap();
-            } else {
-                // No compression, send plain response
-                let headers = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n",
-                    response_body.len()
-                );
-
-                stream.write(headers.as_bytes()).unwrap();
-                stream.write(response_body).unwrap();
-            }
-
-            stream.flush().unwrap();
-        } else {
-            // Handle 404 Not Found
-            let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-            stream.write(response.as_bytes()).unwrap();
-            stream.flush().unwrap();
-        }
+    if method == "POST" && path.starts_with("/files/") {
+        handle_post_files(&mut stream, &request, &buffer, bytes_read, directory);
+    } else if method == "GET" && path.starts_with("/files/") {
+        handle_get_files(&mut stream, path, directory);
+    } else if method == "GET" && path == "/user-agent" {
+        handle_user_agent(&mut stream, &request);
+    } else if method == "GET" && path == "/" {
+        respond_with_ok(&mut stream);
+    } else if method == "GET" && path.starts_with("/echo/") {
+        handle_echo(&mut stream, path, supports_gzip(&request));
     } else {
-        // Handle malformed request (404)
-        let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-        stream.write(response.as_bytes()).unwrap();
-        stream.flush().unwrap();
+        respond_with_error(&mut stream, 404);
     }
 }
 
 fn main() {
-    // Parse command-line arguments
     let args: Vec<String> = env::args().collect();
     let mut directory: Option<String> = None;
 
-    // Check if the --directory flag is provided
     if args.len() > 2 && args[1] == "--directory" {
         directory = Some(args[2].clone());
     }
@@ -223,20 +61,14 @@ fn main() {
     println!("Server running on 127.0.0.1:4221...");
 
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
-    
-    // Loop to accept incoming connections
+
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 let directory = directory.clone();
-                // Spawn a new thread for each connection
-                thread::spawn(move || {
-                    handle_connection(stream, directory);
-                });
+                thread::spawn(move || handle_connection(stream, directory));
             }
-            Err(e) => {
-                println!("Error: {}", e);
-            }
+            Err(e) => println!("Error: {}", e),
         }
     }
 }
