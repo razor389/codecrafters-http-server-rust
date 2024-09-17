@@ -53,6 +53,7 @@ pub fn handle_get_files(stream: &mut std::net::TcpStream, path: &str, directory:
             respond_with_error(stream, 404);
         }
     } else {
+        println!("responding with error");
         respond_with_error(stream, 400);
     }
 }
