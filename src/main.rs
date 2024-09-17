@@ -5,6 +5,8 @@ use std::fs::File;
 use std::env;
 use std::path::Path;
 use std::thread;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 
 fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>) {
     let mut buffer = [0; 512];  // A buffer to read incoming data
@@ -38,7 +40,12 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
             }
         }
         
-        println!("Supports gzip: {}", supports_gzip);
+        // Helper function to handle gzip compression
+        fn compress_gzip(data: &[u8]) -> Vec<u8> {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(data).unwrap();
+            encoder.finish().unwrap()
+        }
 
         // Handle POST /files/{filename} requests
         if method == "POST" && path.starts_with("/files/") {
@@ -151,16 +158,37 @@ fn handle_connection(mut stream: std::net::TcpStream, directory: Option<String>)
             let response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
             stream.write(response.as_bytes()).unwrap();
             stream.flush().unwrap();
-        } else if method == "GET" && path.starts_with("/echo/") {
+        } 
+        // Handle GET /echo/{str} with optional gzip compression
+        else if method == "GET" && path.starts_with("/echo/") {
             // Handle /echo/{str}
             let echo_str = &path[6..]; // Extract the part after "/echo/"
-            let response_body = format!("{}", echo_str);
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-                response_body.len(),
-                response_body
-            );
-            stream.write(response.as_bytes()).unwrap();
+            let response_body = echo_str.as_bytes();
+
+            if supports_gzip {
+                // Compress response body
+                let compressed_body = compress_gzip(response_body);
+
+                // Create the headers
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n",
+                    compressed_body.len()
+                );
+
+                // Write headers and compressed body to stream
+                stream.write(headers.as_bytes()).unwrap();
+                stream.write(&compressed_body).unwrap();
+            } else {
+                // No compression, send plain response
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n",
+                    response_body.len()
+                );
+
+                stream.write(headers.as_bytes()).unwrap();
+                stream.write(response_body).unwrap();
+            }
+
             stream.flush().unwrap();
         } else {
             // Handle 404 Not Found
