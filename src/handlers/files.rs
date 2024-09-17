@@ -50,10 +50,11 @@ pub fn handle_get_files(stream: &mut std::net::TcpStream, path: &str, directory:
             stream.write(&file_contents).unwrap();
             stream.flush().unwrap();
         } else {
+            
+            println!("responding with file not found error from handle get files");
             respond_with_error(stream, 404);
         }
     } else {
-        println!("responding with error");
         respond_with_error(stream, 400);
     }
 }
